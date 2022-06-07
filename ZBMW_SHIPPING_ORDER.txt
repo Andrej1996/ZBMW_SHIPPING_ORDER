@@ -1,0 +1,717 @@
+*&---------------------------------------------------------------------*
+*& Report  ZBMW_SHIPPING_ORDER
+*&
+*&---------------------------------------------------------------------*
+*&
+*&
+*&---------------------------------------------------------------------*
+REPORT ZBMW_SHIPPING_ORDER.
+
+TABLES:
+   ZECUST01, LIKP, LIPS, KNA1, RV50A, ZBMW_FORW_DATA, ZSHIPPING_ORDER,
+ZSHIPPING_TABLE, ZSHIPPING_STR, ADDR1_DATA, zbmw_pack, vepo, vekp, tvty.
+
+TYPES: BEGIN OF st_table,
+
+  supplier              TYPE string,                               "Supplier - Name of company
+  supplier_number       TYPE ZECUST01-KUNNR_EXT1,                  "Supplier number
+  shipping_order_number TYPE n LENGTH 4,                          "Shipping order number
+  dates                 TYPE LIKP-WADAT_IST,                       "Date
+  forwarder_name        TYPE zbmw_forw_data-forwarder_name,        "Forwarder name
+  forwarder_address     TYPE zbmw_forw_data-forwarder_address,     "Forwarder address
+  forwarder_number      TYPE zbmw_forw_data-forwarder_number,      "Forwarder number
+  recipient_name        TYPE kna1-name1,                           "Recipient name
+  recipient_city        TYPE kna1-ort01,                           "Recipient city
+  recipient_address     TYPE kna1-stras,                           "Recipient address
+  recipient_postcode    TYPE kna1-PSTLZ,                           "Post Code
+  land1                 TYPE kna1-land1,
+  pstlz                 TYPE kna1-pstlz,
+  delivery_address      TYPE RV50A-TXTWE,                          "Delivery address = Unloading point + customer name + customer address
+  arrive_data           TYPE ZTARGDAT,                             "Arrive data
+  delivery_note         TYPE LIKP-VBELN,                           "Delivery note
+  shipping_point        TYPE LIKP-VSTEL,                           "Shipping point
+  package_number        TYPE i,                                    "Number of packages
+  packaging_type        TYPE zbmw_pack-BMW_MATNR,                  "Packaging type
+  cust_num              TYPE lips-KDMAT,                           "Customer number
+  text30                TYPE string,                               "Text for field 30
+  text33                TYPE string,                               "Text for field 33
+  truck_number          TYPE LIKP-TRAID,                           "Truck number
+  transport_type        TYPE LIKP-TRATY,                           "Type of transport
+  transport_text        TYPE tvty-traty,
+  text29_1              TYPE string,                               "Text for field 29_1
+  text29_2              TYPE string,                               "Text for field 29_2
+  text29_3              TYPE string,                               "Text for field 29_3
+  text29_4              TYPE string,                               "Text for field 29_4
+  text29_5              TYPE string,                               "Text for field 29_5
+  text40                TYPE string,                               "Text for field 40
+  text41                TYPE string,                               "Text for field 41
+  text42                TYPE string,                               "Text for field 42
+  text40_1              TYPE string,                               "Text for field 40_1
+  text40_2              TYPE string,                               "Text for field 40_2
+  text40_3              TYPE string,                               "Text for field 40_3
+  text41_1              TYPE string,                               "Text for field 41_1
+  text41_2              TYPE string,                               "Text for field 41_2
+  text41_3              TYPE string,                               "Text for field 41_3
+  text41_4              TYPE string,                               "Text for field 41_4
+  text22_1              TYPE string,                               "Text for field 41_4
+  text23_1              TYPE string,                               "Text for field 41_4
+  text24_1              TYPE string,                               "Text for field 41_4
+  text44                TYPE string,
+
+*  address_name1         TYPE ADDR1_DATA-name1,
+  kunag                 TYPE likp-kunag,                           "Ship to party
+  kunnr                 TYPE  likp-kunnr,                          "Sold to party
+
+  cust_name             TYPE string,                               "Customer name
+  cust_address          TYPE string,                               "Customer address
+  cust_city             TYPE string,                               "Customer city
+  uploading             TYPE likp-ablad,                           "Uploading point
+
+  quantity              TYPE lips-lfimg,
+*  lips-lfimg,
+  material              TYPE lips-matnr,
+  bmw_material          TYPE zbmw_pack-bmw_matnr,
+  is_sum                TYPE zbmw_pack-is_sum,
+  packed_quantity       TYPE VEMNG,
+  total_weight          TYPE BRGEW,
+*  PACKAGING_TYPE            TYPE zbmw_pack-bmw_
+*  sum_qty_pack_mat      TYPE lfimg,
+
+  sum_quantity          TYPE c LENGTH 10,
+  sum_weight            TYPE c LENGTH 10,
+  q_quantity              TYPE c LENGTH 10,
+
+  s_kunnr               TYPE likp-kunnr,
+
+  END OF st_table.
+
+ DATA sum_qty_pack_mat TYPE lfimg.
+
+ DATA text29_1  TYPE string VALUE 'Dangerous goods designation'.
+ DATA text29_2  TYPE string VALUE 'Hazard label number'.
+ DATA text29_3  TYPE string VALUE 'Packing group'.
+ DATA text29_5  TYPE string VALUE 'Reference to special regulations'.
+ DATA text30    TYPE string VALUE 'FCA'.
+ DATA text33    TYPE string VALUE '1 set of delivery notes'.
+ DATA text41    TYPE string VALUE 'Acknowledgment of receipt from driver: '.
+ DATA text42    TYPE string VALUE 'The General German Forwarding Conditions ( ADSp ) apply in their latest version'.
+
+
+
+*TYPES: st_dpetxt TYPE ZBMW_SHIPPING_ORDER_P1.   " Static texts
+
+
+DATA : itab      TYPE STANDARD TABLE OF ZSHIPPING_ORDER WITH HEADER LINE,
+       wa_itab   TYPE ZSHIPPING_ORDER  OCCURS 0 WITH HEADER LINE.
+
+TYPES: st_dpetxt TYPE zpack_auto01_p1.          " Static texts
+TYPES: st_dpval  TYPE zpack_auto01_d01.         " Actual print data.
+
+DATA: ms_ftext1  TYPE st_dpetxt.                " form text descriptions
+
+DATA: ls_data_t  TYPE st_dpetxt.
+
+DATA: ms_dp1     TYPE st_dpval.                  "form actual values + additions for display to screen.
+
+DATA: it_table   TYPE  st_table occurs 0 WITH HEADER LINE.
+
+DATA: go_alv     TYPE REF TO cl_salv_table.
+*DATA: gt_item_scr TYPE tt_data_print.
+
+DATA: shipping_num TYPE n LENGTH 13.
+
+DATA: ok_code      LIKE sy-ucomm.
+DATA: leave_screen TYPE flag.
+
+DATA: i_zbmw_str   TYPE TABLE OF zbmw_str WITH HEADER LINE.
+
+DATA: not_found type flag,
+      new_sh_order type flag,
+      i_sh_order LIKE ZSHIPPING_ORDER-SHIPPING_ORDER_NUMBER.
+
+
+SELECTION-SCREEN: BEGIN OF BLOCK b1 WITH FRAME TITLE text01.
+  SELECT-OPTIONS: del_num FOR LIKP-VBELN OBLIGATORY.   "Delivery number
+
+  PARAMETERS:
+              forw_nam LIKE ZBMW_FORW_DATA-FORWARDER_NAME OBLIGATORY,         "Forwarder name
+              sh_point LIKE LIKP-VSTEL.                                       "Shipping point
+SELECTION-SCREEN: END OF BLOCK b1.
+
+
+SELECTION-SCREEN: BEGIN OF BLOCK b2 WITH FRAME TITLE text02.
+  PARAMETERS:
+              sh_order LIKE ZSHIPPING_ORDER-SHIPPING_ORDER_NUMBER.               "Shipping order number
+SELECTION-SCREEN: END OF BLOCK b2.
+
+text01 = 'Data selection for printing'(t01).
+text02 = 'Reprinting'(t01).
+
+" --------------------------------------------------- "
+"check deliveries and shipping number if already exist"
+" --------------------------------------------------- "
+clear: i_sh_order, not_found.
+IF sh_order is NOT INITIAL.
+  LOOP AT del_num.
+    SELECT SINGLE * FROM ZSHIPPING_ORDER
+      WHERE delivery = del_num-low and shipping_order_number = sh_order.
+    IF SY-SUBRC = 0.
+       CONTINUE.
+    else.
+       not_found = 'X'.
+       exit.
+    endif.
+  ENDLOOP.
+
+  IF not_found = ' '.
+    CALL SCREEN 800 STARTING AT '5' '5'.
+  ELSE.
+    i_sh_order = sh_order.
+    clear: leave_screen, new_sh_order.
+    CALL SCREEN 801 STARTING AT '5' '5'.
+  ENDIF.
+ENDIF.
+" --------------------------------------------------- "
+
+if leave_screen = ' '.
+    CLEAR : shipping_num, wa_itab, wa_itab[].
+    IF ( sh_order is INITIAL ) or ( new_sh_order = 'X' ).
+        SELECT MAX( shipping_order_number ) FROM ZSHIPPING_ORDER INTO shipping_num.
+        shipping_num = shipping_num + 1.
+      ELSE.
+        shipping_num = sh_order.
+    ENDIF.
+
+    IF sh_order is NOT INITIAL.
+
+      LOOP AT del_num.
+
+        clear : wa_itab, wa_itab[].
+        SELECT SINGLE * FROM ZSHIPPING_ORDER
+          WHERE delivery = del_num-low and shipping_order_number = sh_order.
+
+        IF sy-subrc <> 0.
+          wa_itab-delivery = del_num-low.
+          wa_itab-shipping_order_number = shipping_num.
+          APPEND wa_itab.
+          INSERT  ZSHIPPING_ORDER FROM TABLE wa_itab.
+**          ELSE.
+**             CALL SCREEN 800 STARTING AT '5' '5'..
+        ENDIF.
+
+      ENDLOOP.
+
+    ELSEIF ( sh_order is initial ) or ( new_sh_order = 'X' ).
+      LOOP AT del_num.
+        clear : wa_itab, wa_itab[].
+
+        wa_itab-delivery = del_num-low.
+        wa_itab-shipping_order_number = shipping_num.
+        APPEND wa_itab.
+        INSERT  ZSHIPPING_ORDER FROM TABLE wa_itab.
+
+      ENDLOOP.
+
+
+    ENDIF.
+
+  PERFORM get_print_data.
+
+  PERFORM do_print USING ls_data_t.
+
+endif.
+
+
+CLASS lcl_print_data_loader01 DEFINITION.
+  PROTECTED SECTION.
+    METHODS: data_fill.
+    METHODS: form_text_fill.
+
+
+  ENDCLASS.
+
+
+CLASS lcl_print_data_loader01 IMPLEMENTATION.
+  METHOD data_fill.
+
+    ENDMETHOD.
+
+
+
+  METHOD form_text_fill.
+    " Fill in text descriptions.
+    CLEAR ms_ftext1.
+    ms_ftext1-text01 = '1) Consignor/Supplier'.
+    ms_ftext1-text02 = '2) Supplier number'.
+    ms_ftext1-text03 = '3) Shipping order number'.
+    ms_ftext1-text04 = '4) Supplier number at the shipping carrier'.
+    ms_ftext1-text05 = '5) Loading point'.
+    ms_ftext1-text06 = '6) Date'.
+    ms_ftext1-text07 = '7) Relation number'.
+    ms_ftext1-text08 = '8) Tracking number'.
+    ms_ftext1-text09 = '9) Shipping agent'.
+    ms_ftext1-text10 = '10) Forwarder number in BMW'.
+    ms_ftext1-text11 = '11) Receiver'.
+    ms_ftext1-text12 = '12) Customer number'.
+    ms_ftext1-text13 = '13) Loading list number'.
+    ms_ftext1-text14 = '14) Delivery address/Unloading point'.
+    ms_ftext1-text15 = '15) Shipping note for the shipping agent'.
+    ms_ftext1-text16 = '16) Date of arrival'.
+    ms_ftext1-text17 = '17) Arrival time'.
+    ms_ftext1-text18 = '18) Identifications–Nr-Packaging identification number'.
+    ms_ftext1-text19 = '19) Number'.
+    ms_ftext1-text20 = '20) Package'.
+    ms_ftext1-text21 = '21) SF'.
+    ms_ftext1-text22 = '22) Content/Customer material number'.
+    ms_ftext1-text23 = '23) Neto'.
+    ms_ftext1-text24 = '24) Gross weight'.
+    ms_ftext1-text25 = '25) Sum'.
+    ms_ftext1-text26 = '26) Volume/Loading meter'.
+    ms_ftext1-text27 = '27) Sum'.
+    ms_ftext1-text28 = '28) Sum'.
+    ms_ftext1-text29 = '29) Dangerous goods'.
+    ms_ftext1-text30 = '30) Postage/Unfrei'.
+    ms_ftext1-text31 = '31) Value of goods for transport insurance'.
+    ms_ftext1-text32 = '32) Sender incoterms'.
+    ms_ftext1-text33 = '33) Requirements'.
+    ms_ftext1-text34 = '34) Customer order number'.
+    ms_ftext1-text35 = '35) Account Assignment'.
+    ms_ftext1-text36 = '36) Means of transport'.
+    ms_ftext1-text37 = '37) Truck plate number'.
+    ms_ftext1-text38 = '38) Shipping method'.
+    ms_ftext1-text39 = '39) Accounting Key'.
+    ms_ftext1-text40 = '40) Acknowledgment of receipt of the goods:'.
+    ms_ftext1-text41 = '41) Acknowledgment of receipt from driver:'.
+    ms_ftext1-text42 = '42) The shipment contains'.
+    ms_ftext1-text43 = '43) The General German Forwarding Conditions ( ADSp ) apply in their latest version'.
+*    ms_ftext1-text44 = '44) For freight forwarder'.
+**    ms_ftext1-text45 = ''.
+**    ms_ftext1-text46 = ''.
+
+  ENDMETHOD.
+
+  ENDCLASS.
+
+
+*&---------------------------------------------------------------------*
+*&      Form  DO_PRINT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM DO_PRINT
+              USING is_data_t TYPE st_dpetxt.
+
+    DATA: lv_sfname TYPE tdsfname.
+    DATA: lv_fname TYPE  RS38L_FNAM.
+
+    lv_sfname = 'ZBMW_SHIPPING_ORD3'.
+    CALL FUNCTION 'SSF_FUNCTION_MODULE_NAME'
+    EXPORTING
+      formname           = lv_sfname
+*     VARIANT            = ' '
+*     DIRECT_CALL        = ' '
+    IMPORTING
+      fm_name            = lv_fname
+    EXCEPTIONS
+      no_form            = 1
+      no_function_module = 2
+      OTHERS             = 3.
+  IF sy-subrc <> 0.
+    WRITE:/ 'Print form can not be found' COLOR COL_NEGATIVE, lv_sfname.
+    RETURN.
+  ENDIF.
+
+
+  CALL FUNCTION lv_fname
+    EXPORTING
+*     ARCHIVE_INDEX              =
+*     ARCHIVE_INDEX_TAB          =
+*     ARCHIVE_PARAMETERS         =
+*     CONTROL_PARAMETERS         =
+*     MAIL_APPL_OBJ              =
+*     MAIL_RECIPIENT             =
+*     MAIL_SENDER                =
+*     OUTPUT_OPTIONS             =
+*     USER_SETTINGS              = 'X'
+      is_text                    = is_data_t
+      SHIPPING_STR               = ZSHIPPING_STR
+*   IMPORTING
+*     DOCUMENT_OUTPUT_INFO       =
+*     JOB_OUTPUT_INFO            =
+*     JOB_OUTPUT_OPTIONS         =
+   TABLES
+     bmw_str                    = i_zbmw_str
+   EXCEPTIONS
+     FORMATTING_ERROR           = 1
+     INTERNAL_ERROR             = 2
+     SEND_ERROR                 = 3
+     USER_CANCELED              = 4
+     OTHERS                     = 5
+            .
+  IF SY-SUBRC <> 0.
+* Implement suitable error handling here
+    IF sy-subrc = 4.
+      WRITE:/ 'User cancellation'.
+    ELSE.
+      WRITE:/ 'Print error. Error code:', sy-subrc.
+      DATA: lt_err TYPE tsferror.
+      DATA: lv_dummy TYPE string.
+      CALL FUNCTION 'SSF_READ_ERRORS'
+        IMPORTING
+          errortab = lt_err.
+      LOOP AT lt_err ASSIGNING FIELD-SYMBOL(<ls_err>).
+        MESSAGE ID <ls_err>-msgid TYPE <ls_err>-msgty NUMBER <ls_err>-msgno
+                WITH <ls_err>-msgv1 <ls_err>-msgv2 <ls_err>-msgv3 <ls_err>-msgv4 INTO lv_dummy.
+        WRITE:/ lv_dummy.
+      ENDLOOP.
+    ENDIF.
+    RETURN.
+  ENDIF.
+
+ENDFORM.
+
+
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0800  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_0800 INPUT.
+**  data: okcode like sy-ucomm.
+
+  ok_code = sy-ucomm.
+  CLEAR : sy-ucomm, leave_screen.
+  CASE ok_code.
+    WHEN 'OK800'.
+      LEAVE TO SCREEN 0.
+  ENDCASE.
+
+ENDMODULE.
+
+
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0800  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE status_0800 OUTPUT.
+  SET PF-STATUS 'ZZZZ'.
+  SET TITLEBAR 'TITLE_0800'.
+ENDMODULE.
+*----------------------------------------------------------------------*
+
+
+*&---------------------------------------------------------------------*
+*&      Form  GET_PRINT_DATA
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM GET_PRINT_DATA .
+
+
+  DATA: zship_tab TYPE zshipping_table OCCURS 0 WITH HEADER LINE.
+  DATA: w_vgbel type vgbel,
+        w_werks type werks_d,
+        w_vbeln type vbeln,
+        w_packed_qty TYPE VEMNG,
+        w_total_weight TYPE BRGEW,
+        w_num type p DECIMALS 3,
+        w_weight type p DECIMALS 3,
+        w_quantity TYPE p DECIMALS 3 .
+
+  CLEAR : it_table, it_table[], ZSHIPPING_TABLE, i_zbmw_str, i_zbmw_str[].
+
+
+  LOOP at del_num.
+
+   CLEAR : it_table.
+
+   it_table-delivery_note  = del_num-low.
+   it_table-supplier = 'Etem Gestamp Automotive Bulgaria'.
+
+
+   DATA: w_kunnr LIKE zecust01-kunnr_ext1.
+   DATA: z_kunnr LIKE zecust01-kunnr_ext1.
+   DATA: z_unloading LIKE likp-ablad.
+   DATA: z_text LIKE tvty-traty.
+*   likp-kunnr
+
+   SELECT SINGLE kunnr, WADAT_IST, TRAID, TRATY, zztargdat, vbeln FROM likp
+          INTO ( @w_kunnr, @it_table-dates, @it_table-truck_number, @it_table-transport_type, @it_table-arrive_data, @it_table-delivery_note )
+                                                                                                             WHERE vbeln = @del_num-low.
+
+*   SELECT SINGLE kunnr FROM likp INTO it_table-s_kunnr WHERE vbeln = del_num-low.
+   SELECT SINGLE kunnr_ext1 FROM zecust01 INTO z_kunnr WHERE kunnr = w_kunnr.
+*      w_kunnr
+
+   it_table-supplier_number = z_kunnr.
+   it_table-shipping_order_number = shipping_num.
+
+   SELECT SINGLE forwarder_name, forwarder_address, forwarder_number FROM zbmw_forw_data
+                  INTO ( @it_table-forwarder_name, @it_table-forwarder_address, @it_table-forwarder_number ) WHERE forwarder_name = @forw_nam.
+
+
+   SELECT SINGLE kunag kunnr FROM likp INTO ( it_table-kunag, it_table-kunnr ) WHERE vbeln = del_num-low.
+     SELECT SINGLE name1, ort01, stras, PSTLZ, land1 FROM kna1 INTO ( @it_table-recipient_name, @it_table-recipient_city, @it_table-recipient_address, @it_table-recipient_postcode, @it_table-land1 )
+                                                                                                             WHERE kunnr = @it_table-kunag.
+
+     SELECT SINGLE name1, ort01, stras, pstlz FROM kna1 INTO ( @it_table-cust_name, @it_table-cust_city, @it_table-cust_address, @it_table-pstlz )
+                                                                                                             WHERE kunnr = @it_table-kunnr.
+
+
+*   SELECT SINGLE vbeln, lfimg, matnr  FROM lips INTO ( @i_tab-delivery_number, @i_tab-quantity, @i_tab-material )
+*                                                                                                             WHERE vbeln = @it_table-delivery_note.
+
+   Clear : w_vgbel.
+   SELECT SINGLE vgbel FROM lips INTO w_vgbel WHERE vbeln = it_table-delivery_note AND kdmat <> ' '.
+
+
+   SELECT SINGLE ablad FROM likp into z_unloading WHERE vbeln = it_table-delivery_note.
+     it_table-uploading = z_unloading.
+
+*     vbeln = del_num-low.
+*     vbeln = w_vgbel AND kunnr = it_table-kunnr.
+*      AND PARVW = 'WE'.
+
+    SELECT SINGLE traty FROM tvty INTO z_text WHERE traty = it_table-transport_type.
+      it_table-transport_type = z_text.
+
+     it_table-text29_4    = 'Net mass'.
+     it_table-text30      = 'FCA'.
+     it_table-text33      = '1 set of delivery notes'.
+     it_table-text40      = 'Acknowledgment of receipt of the goods: '.
+     it_table-text40_1    = 'Above shipment received complete and in proper condition'.
+     it_table-text40_2    = 'Company stamp'.
+     it_table-text40_3    = 'Signature'.
+     it_table-text41_1    = 'The above shipment was accepted in full and in proper condition'.
+     it_table-text41_2    = 'Date'.
+     it_table-text41_3    = 'Time'.
+     it_table-text41_4    = 'Signature'.
+     it_table-text22_1    = 'Customer material number'.
+     it_table-text23_1    = 'Neto'.
+     it_table-text24_1    = 'Gross weight'.
+     it_table-text44      = '44) For Forwarder'.
+
+     it_table-delivery_note = del_num-low.
+
+
+
+     SELECT SINGLE lfimg FROM lips INTO it_table-quantity WHERE vbeln = del_num-low.
+
+*        CONDENSE it_table-quantity NO-GAPS.
+*        SHIFT it_table-quantity RIGHT DELETING TRAILING '0'.
+*        SHIFT it_table-quantity RIGHT DELETING TRAILING ','.
+*        CONDENSE it_table-quantity NO-GAPS.
+
+
+     APPEND it_table.
+  ENDLOOP.
+
+  clear sum_qty_pack_mat.
+  LOOP at del_num.
+    i_zbmw_str-DELIVERY_NUMBER = del_num-low.
+    DATA: quantity_output TYPE c.
+    select * from lips where vbeln = del_num-low and PSTYV = 'ZTAL'.
+      w_werks = lips-werks.
+
+      move lips-lfimg to i_zbmw_str-quantity.
+      REPLACE '.' with ',' into i_zbmw_str-quantity.
+      i_zbmw_str-material = lips-matnr.
+
+      select single * from zbmw_pack where etm_matnr = lips-matnr.
+      if sy-subrc = 0.
+        i_zbmw_str-bmw_material = zbmw_pack-bmw_matnr.
+        i_zbmw_str-is_sum = zbmw_pack-is_sum.
+      endif.
+
+      IF i_zbmw_str-is_sum = 'X'.
+        sum_qty_pack_mat = sum_qty_pack_mat + lips-lfimg.
+      ENDIF.
+
+      SELECT SINGLE kdmat FROM lips INTO i_zbmw_str-cust_num WHERE vbeln = del_num-low AND vgbel <> ' '.
+
+      clear : w_packed_qty, w_total_weight.
+      SELECT SUM( vemng )  FROM vepo into w_packed_qty WHERE vbeln = del_num-low and werks = w_werks.
+      move w_packed_qty to  i_zbmw_str-packed_quantity.
+      replace '.' with ',' into i_zbmw_str-packed_quantity.
+
+      SELECT SUM( brgew ) FROM vekp INTO w_total_weight WHERE VBELN_GEN = del_num-low AND werks = w_werks.
+      move w_total_weight to i_zbmw_str-total_weight.
+      replace '.' with ',' into i_zbmw_str-total_weight.
+
+      APPEND i_zbmw_str.
+
+    endselect.
+  ENDLOOP.
+
+  sort i_zbmw_str by delivery_number ASCENDING is_sum DESCENDING.
+
+  clear w_vbeln.
+  LOOP AT i_zbmw_str.
+    if sy-tabix = 1.
+
+     it_table-sum_quantity = it_table-sum_quantity + w_num.
+     it_table-sum_weight = it_table-sum_quantity + w_weight.
+     it_table-q_quantity = it_table-q_quantity + w_quantity.
+
+     CALL FUNCTION 'MOVE_CHAR_TO_NUM'
+        EXPORTING
+          CHR                   = i_zbmw_str-quantity
+        IMPORTING
+          NUM                   = w_quantity
+*       EXCEPTIONS
+*         CONVT_NO_NUMBER       = 1
+*         CONVT_OVERFLOW        = 2
+*         OTHERS                = 3
+                .
+
+     CALL FUNCTION 'MOVE_CHAR_TO_NUM'
+        EXPORTING
+          CHR                   = i_zbmw_str-total_weight
+        IMPORTING
+          NUM                   = w_weight
+*       EXCEPTIONS
+*         CONVT_NO_NUMBER       = 1
+*         CONVT_OVERFLOW        = 2
+*         OTHERS                = 3
+                .
+
+     CALL FUNCTION 'MOVE_CHAR_TO_NUM'
+        EXPORTING
+          CHR                   = i_zbmw_str-packed_quantity
+        IMPORTING
+          NUM                   = w_num
+*       EXCEPTIONS
+*         CONVT_NO_NUMBER       = 1
+*         CONVT_OVERFLOW        = 2
+*         OTHERS                = 3
+                .
+
+      w_vbeln = i_zbmw_str-DELIVERY_NUMBER.
+      continue.
+    endif.
+    if i_zbmw_str-DELIVERY_NUMBER = w_vbeln.
+      clear : i_zbmw_str-DELIVERY_NUMBER, i_zbmw_str-cust_num, i_zbmw_str-packed_quantity, i_zbmw_str-total_weight, i_zbmw_str-q_quantity.
+      modify i_zbmw_str index sy-tabix.
+    else.
+*sum_quantity          TYPE c LENGTH 10,
+*  sum_weight            TYPE c LENGTH 10,
+      it_table-sum_quantity = it_table-sum_quantity + w_num.
+      it_table-sum_weight   = it_table-sum_weight + w_weight.
+      it_table-q_quantity   = it_table-q_quantity + w_quantity.
+
+     CALL FUNCTION 'MOVE_CHAR_TO_NUM'
+        EXPORTING
+          CHR                   = i_zbmw_str-quantity
+        IMPORTING
+          NUM                   = w_quantity
+*       EXCEPTIONS
+*         CONVT_NO_NUMBER       = 1
+*         CONVT_OVERFLOW        = 2
+*         OTHERS                = 3
+                .
+
+      CALL FUNCTION 'MOVE_CHAR_TO_NUM'
+        EXPORTING
+          CHR                   = i_zbmw_str-total_weight
+        IMPORTING
+          NUM                   = w_weight
+*       EXCEPTIONS
+*         CONVT_NO_NUMBER       = 1
+*         CONVT_OVERFLOW        = 2
+*         OTHERS                = 3
+                .
+
+      CALL FUNCTION 'MOVE_CHAR_TO_NUM'
+        EXPORTING
+          CHR                   = i_zbmw_str-packed_quantity
+        IMPORTING
+          NUM                   = w_num
+*       EXCEPTIONS
+*         CONVT_NO_NUMBER       = 1
+*         CONVT_OVERFLOW        = 2
+*         OTHERS                = 3
+                .
+      IF SY-SUBRC <> 0.
+* Implement suitable error handling here
+      ENDIF.
+
+      w_vbeln = i_zbmw_str-DELIVERY_NUMBER.
+      continue.
+    endif.
+  ENDLOOP.
+
+"" sum
+  it_table-sum_quantity = it_table-sum_quantity + w_num.
+  it_table-sum_weight = it_table-sum_weight + w_weight.
+  it_table-q_quantity = it_table-q_quantity + w_quantity.
+
+     CALL FUNCTION 'MOVE_CHAR_TO_NUM'
+        EXPORTING
+          CHR                   = i_zbmw_str-quantity
+        IMPORTING
+          NUM                   = w_quantity
+*       EXCEPTIONS
+*         CONVT_NO_NUMBER       = 1
+*         CONVT_OVERFLOW        = 2
+*         OTHERS                = 3
+                .
+  CALL FUNCTION 'MOVE_CHAR_TO_NUM'
+        EXPORTING
+          CHR                   = i_zbmw_str-total_weight
+        IMPORTING
+          NUM                   = w_weight
+*       EXCEPTIONS
+*         CONVT_NO_NUMBER       = 1
+*         CONVT_OVERFLOW        = 2
+*         OTHERS                = 3
+        .
+     CALL FUNCTION 'MOVE_CHAR_TO_NUM'
+        EXPORTING
+          CHR                   = i_zbmw_str-packed_quantity
+        IMPORTING
+          NUM                   = w_num
+*       EXCEPTIONS
+*         CONVT_NO_NUMBER       = 1
+*         CONVT_OVERFLOW        = 2
+*         OTHERS                = 3
+        .
+  MOVE-CORRESPONDING it_table to ZSHIPPING_STR.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0801  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE STATUS_0801 OUTPUT.
+  SET PF-STATUS 'ZZZZ'.
+*  SET TITLEBAR 'xxx'.
+ENDMODULE.
+
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0801  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_0801 INPUT.
+**  data: okcode like sy-ucomm.
+
+  ok_code = sy-ucomm.
+  CLEAR : sy-ucomm, leave_screen, new_sh_order.
+  CASE ok_code.
+    WHEN 'OK801'.
+      new_sh_order = 'X'.
+      LEAVE TO SCREEN 0.
+    WHEN 'CANC801'.
+      leave_screen = 'X'.
+      LEAVE TO SCREEN 0.
+  ENDCASE.
+
+ENDMODULE.
